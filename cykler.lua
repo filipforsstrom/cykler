@@ -1,6 +1,7 @@
 _lfos = require "lfo"
 s = require "sequins"
 MusicUtil = require("musicutil")
+g = grid.connect()
 
 dest = {"192.168.1.50", 10101}
 osc.send(dest, "/soup", {1, 10})
@@ -24,6 +25,9 @@ function init()
 
     init_params()
     params:bang()
+
+    grid_dirty = true -- initialize with a redraw
+    clock.run(grid_redraw_clock) -- start the grid redraw clock
 end
 
 function init_params()
@@ -43,7 +47,7 @@ function init_params()
         id = "scale_custom",
         name = "scale custom",
         options = custom_scale_option,
-        default = 1,
+        default = 2,
         action = function()
             build_custom_scale()
         end
@@ -199,4 +203,90 @@ function send_osc()
     --     print("note: " .. note .. " vel: " .. vel)
     -- end
     -- previous_note = note
+end
+
+g.key = function(x, y, z)
+    -- keyboard
+    if x == 15 and y < 4 and z == 1 then
+        update_custom_scale(grid_to_note(x, y))
+    elseif x == 15 and y > 4 and y < 7 and z == 1 then
+        update_custom_scale(grid_to_note(x, y))
+    elseif x == 16 and y < 8 and z == 1 then
+        update_custom_scale(grid_to_note(x, y))
+    end
+
+    grid_dirty = true
+end
+
+function update_custom_scale(index)
+
+    if notes_in_scale[params:get("scale_custom")][index] == 1 then
+        notes_in_scale[params:get("scale_custom")][index] = 0
+    else
+        notes_in_scale[params:get("scale_custom")][index] = 1
+    end
+
+    -- for i = 1, #notes_in_scale[params:get("scale_custom")] do
+    --     print(notes_in_scale[params:get("scale_custom")][i])
+    -- end
+
+    build_custom_scale()
+end
+
+function grid_to_note(x, y)
+    local note
+    if x == 16 and y == 7 then
+        note = 1
+    elseif x == 15 and y == 6 then
+        note = 2
+    elseif x == 16 and y == 6 then
+        note = 3
+    elseif x == 15 and y == 5 then
+        note = 4
+    elseif x == 16 and y == 5 then
+        note = 5
+    elseif x == 16 and y == 4 then
+        note = 6
+    elseif x == 15 and y == 3 then
+        note = 7
+    elseif x == 16 and y == 3 then
+        note = 8
+    elseif x == 15 and y == 2 then
+        note = 9
+    elseif x == 16 and y == 2 then
+        note = 10
+    elseif x == 15 and y == 1 then
+        note = 11
+    elseif x == 16 and y == 1 then
+        note = 12
+    end
+    -- print("x: " .. x .. " y: " .. y .. " note: " .. note)
+    return note
+end
+
+function grid_redraw_clock() -- our grid redraw clock
+    while true do -- while it's running...
+        clock.sleep(1 / 30) -- refresh at 30fps.
+        if grid_dirty then -- if a redraw is needed...
+            grid_redraw() -- redraw...
+            grid_dirty = false -- then redraw is no longer needed.
+        end
+    end
+end
+
+function grid_redraw()
+    g:all(0)
+
+    -- keyboard
+    for i = 1, 3 do
+        g:led(15, i, 5)
+    end
+    for i = 5, 6 do
+        g:led(15, i, 5)
+    end
+    for i = 1, 7 do
+        g:led(16, i, 10)
+    end
+
+    g:refresh()
 end
