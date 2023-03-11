@@ -3,10 +3,11 @@ s = require "sequins"
 MusicUtil = require("musicutil")
 g = grid.connect()
 
-dest = {"192.168.1.50", 10101}
-osc.send(dest, "/soup", {1, 10})
+dest = {"192.168.1.226", 57120}
 
-notes_in_scale = {{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+previous_note = 0
+
+notes_in_scale = {{1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0}, {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
@@ -19,7 +20,6 @@ end
 custom_scale_option = {"off", 1, 2, 3, 4, 5, 6, 7, 8}
 
 function init()
-
     sync_vals = s {1, 1 / 3, 1 / 2, 1 / 6, 2}
     clock.run(iter)
 
@@ -62,7 +62,14 @@ function init_params()
         mode = "clocked",
         period = 24,
         action = function(scaled, raw)
-            send_osc()
+            local note = util.round(scaled)
+            local note = MusicUtil.snap_note_to_array(note, scale_global)
+            local note = MusicUtil.snap_note_to_array(note, scale_custom)
+            if note ~= previous_note then
+                send_osc()
+                -- print(note)
+            end
+            previous_note = note
         end
     }
     note_lfo:start()
@@ -111,7 +118,7 @@ function init_params()
 
     -- velocity lfo
     vel_lfo = _lfos:add{
-        shape = "sine",
+        shape = "saw",
         min = 0,
         max = 127,
         depth = 1,
