@@ -3,8 +3,10 @@ s = require "sequins"
 MusicUtil = require("musicutil")
 tabutil = require "tabutil"
 g = grid.connect()
+out_midi = midi.connect(1)
+midi_channel = 1
 
-dest = {"192.168.1.50", 57120}
+dest = {"192.168.1.226", 57120}
 
 previous_note = 0
 grid_param_resolution = 12
@@ -29,6 +31,12 @@ function init()
     sync_vals = s {1, 1 / 3, 1 / 2, 1 / 6, 2}
     clock.run(iter)
 
+    note_lfo_min_max_range = {
+        x1 = 1,
+        x2 = 1,
+        held = 0
+    }
+
     init_params()
     params:bang()
 
@@ -47,6 +55,7 @@ function init()
             custom_scale = {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
         })
     end
+    build_custom_scale()
 
     params:add_number("state", "state", 1, 8, 1)
     params:set_action("state", function(x)
@@ -72,36 +81,21 @@ function init()
     -- path = norns.state.data .. "/test_tab.dat"
     -- loaded_tab = tabutil.load(path)
     -- tabutil.print(loaded_tab)
-    tabutil.print(states[params:get("state")].custom_scale)
 end
 
 function init_params()
+    params:add_number("voices", "voices", 1, 8, 1)
+
     params:add{
         type = "option",
         id = "scale_global",
         name = "scale global",
         options = scale_names,
-        default = 41,
+        default = 3,
         action = function(x)
             scale_global = MusicUtil.generate_scale(0, x, 10)
         end
     }
-
-    -- params:add{
-    --     type = "option",
-    --     id = "scale_custom",
-    --     name = "scale custom",
-    --     options = custom_scale_option,
-    --     default = 2,
-    --     action = function()
-    --         build_custom_scale()
-    --     end
-    -- }
-
-    -- params:add_number("scale_custom", "scale custom", 1, 8, 1)
-    -- params:set_action("scale_custom", function(x)
-    --     build_custom_scale()
-    -- end)
 
     -- note lfo
     note_lfo = _lfos:add{
@@ -112,14 +106,6 @@ function init_params()
         mode = "free",
         period = 1,
         action = function(scaled, raw)
-            -- local note = util.round(scaled)
-            -- local note = MusicUtil.snap_note_to_array(note, scale_global)
-            -- local note = MusicUtil.snap_note_to_array(note, scale_custom)
-            -- if note ~= previous_note then
-            --     send_osc()
-            --     -- print(note)
-            -- end
-            -- previous_note = note
             send_osc()
         end
     }
@@ -309,9 +295,39 @@ function build_custom_scale()
     table.sort(temp_scale)
 
     scale_custom = temp_scale
-    -- for i = 1, #scale_custom do
-    --     print(scale_custom[i])
-    -- end
+end
+
+function randomize_params()
+    -- note lfo
+    local note_lfo_speed_range = params:get_range("note_lfo_speed")
+    params:set("note_lfo_speed", math.random(note_lfo_speed_range[1] * 100, note_lfo_speed_range[2] * 100) / 100)
+    local note_lfo_depth = params:get_range("note_lfo_depth")
+    params:set("note_lfo_depth", math.random(note_lfo_depth[1] * 100, note_lfo_depth[2] * 100) / 100)
+    local note_lfo_min_random = math.random(0, 127)
+    local note_lfo_max_random = math.random(note_lfo_min_random, 127)
+    params:set("note_lfo_min", math.random(0, note_lfo_min_random))
+    params:set("note_lfo_max", math.random(note_lfo_max_random, 127))
+    params:set("note_lfo_shape", math.random(1, 4))
+
+    -- vel lfo
+    local vel_lfo_speed_range = params:get_range("vel_lfo_speed")
+    params:set("vel_lfo_speed", math.random(vel_lfo_speed_range[1] * 100, vel_lfo_speed_range[2] * 100) / 100)
+    local vel_lfo_depth = params:get_range("vel_lfo_depth")
+    params:set("vel_lfo_depth", math.random(vel_lfo_depth[1] * 100, vel_lfo_depth[2] * 100) / 100)
+    local vel_lfo_min_random = math.random(0, 127)
+    local vel_lfo_max_random = math.random(vel_lfo_min_random, 127)
+    params:set("vel_lfo_min", math.random(0, vel_lfo_min_random))
+    params:set("vel_lfo_max", math.random(vel_lfo_max_random, 127))
+    params:set("vel_lfo_shape", math.random(1, 4))
+
+    randomize_custom_scale()
+end
+
+function randomize_custom_scale()
+    for i = 1, #states[params:get("state")].custom_scale do
+        states[params:get("state")].custom_scale[i] = math.random(0, 1)
+    end
+    build_custom_scale()
 end
 
 function iter()
@@ -328,15 +344,30 @@ function send_osc()
 
     local note = util.round(note_lfo:get("scaled"))
     -- local note = util.wrap(note, params:get("note_lfo_min"), params:get("note_lfo_max"))
-    local note = MusicUtil.snap_note_to_array(note, scale_global)
     local note = MusicUtil.snap_note_to_array(note, scale_custom)
+    local note = MusicUtil.snap_note_to_array(note, scale_global)
     local vel = util.round(vel_lfo:get("scaled"))
 
+    local strt = note
+
     if note ~= previous_note then
+        -- osc
         osc.send(dest, "/note", {note, vel})
+        -- print(note)
+
+        -- midi
+        out_midi:cc(25, util.round(vel), midi_channel)
+        out_midi:cc(17, util.round(strt), midi_channel)
+        out_midi:note_on(35 + midi_channel, 100, midi_channel)
         -- print("note: " .. note .. " vel: " .. vel)
+        midi_channel = midi_channel + 1
     end
+
     previous_note = note
+
+    if midi_channel > params:get("voices") then
+        midi_channel = 1
+    end
 end
 
 g.key = function(x, y, z)
@@ -353,17 +384,55 @@ g.key = function(x, y, z)
         params:set("note_lfo_depth", util.linlin(1, grid_param_resolution, range[2], range[1], x))
     end
 
-    -- note lfo min
+    -- note lfo min max
     if x <= grid_param_resolution and y == 6 and z == 1 then
+        note_lfo_min_max_range.held = note_lfo_min_max_range.held + 1
+        local difference = note_lfo_min_max_range.x2 - note_lfo_min_max_range.x1
+        local original = {
+            x1 = note_lfo_min_max_range.x1,
+            x2 = note_lfo_min_max_range.x2
+        } -- keep track of the original positions, in case we need to restore them
+        if note_lfo_min_max_range.held == 1 then -- if there's one key down...
+            note_lfo_min_max_range.x1 = x
+            note_lfo_min_max_range.x2 = x
+            if difference > 0 then -- and if there's a range...
+                if x + difference <= 12 then -- and if the new start point can accommodate the range...
+                    note_lfo_min_max_range.x2 = x + difference -- set the range's start point to the selectedc key.
+                else -- otherwise, if there isn't enough room to move the range...
+                    -- restore the original positions.
+                    note_lfo_min_max_range.x1 = original.x1
+                    note_lfo_min_max_range.x2 = original.x2
+                end
+            end
+        elseif note_lfo_min_max_range.held == 2 then -- if there's two keys down...
+            note_lfo_min_max_range.x2 = x -- set an range endpoint.
+        end
+        if note_lfo_min_max_range.x2 < note_lfo_min_max_range.x1 then -- if our second press is before our first...
+            note_lfo_min_max_range.x2 = note_lfo_min_max_range.x1 -- destroy the range.
+        end
+    elseif z == 0 then -- if a key is released...
+        note_lfo_min_max_range.held = note_lfo_min_max_range.held - 1 -- reduce the held count by 1.
+
         local range = params:get_range("note_lfo_min")
-        params:set("note_lfo_min", util.round(util.linlin(1, grid_param_resolution, range[2], range[1], x)))
+        params:set("note_lfo_min",
+            util.round(util.linlin(1, grid_param_resolution, range[2], range[1], note_lfo_min_max_range.x2)))
+        local range = params:get_range("note_lfo_max")
+        params:set("note_lfo_max",
+            util.round(util.linlin(1, grid_param_resolution, range[2], range[1], note_lfo_min_max_range.x1)))
+
     end
 
+    -- note lfo min
+    -- if x <= grid_param_resolution and y == 6 and z == 1 then
+    --     local range = params:get_range("note_lfo_min")
+    --     params:set("note_lfo_min", util.round(util.linlin(1, grid_param_resolution, range[2], range[1], x)))
+    -- end
+
     -- note lfo max
-    if x <= grid_param_resolution and y == 5 and z == 1 then
-        local range = params:get_range("note_lfo_max")
-        params:set("note_lfo_max", util.round(util.linlin(1, grid_param_resolution, range[2], range[1], x)))
-    end
+    -- if x <= grid_param_resolution and y == 5 and z == 1 then
+    --     local range = params:get_range("note_lfo_max")
+    --     params:set("note_lfo_max", util.round(util.linlin(1, grid_param_resolution, range[2], range[1], x)))
+    -- end
 
     -- note lfo shape
     if x == 13 and y > 4 and z == 1 then
@@ -399,14 +468,14 @@ g.key = function(x, y, z)
         params:set("vel_lfo_shape", 5 - y)
     end
 
-    -- custom scale
-    -- if x == 14 and z == 1 then
-    --     params:set("scale_custom", 9 - y)
-    -- end
-
     -- state
     if x == 14 and z == 1 then
         params:set("state", 9 - y)
+    end
+
+    -- randomize params
+    if x == 16 and y == 8 and z == 1 then
+        randomize_params()
     end
 
     -- keyboard
@@ -493,28 +562,29 @@ function grid_redraw()
     end
 
     -- note lfo min
-    local note_lfo_min_range = params:get_range("note_lfo_min")
-    local note_lfo_min = params:get("note_lfo_min")
-    for i = 1, grid_param_resolution do
-        local led = 5
-        if i ==
-            util.round(util.linlin(note_lfo_min_range[1], note_lfo_min_range[2], grid_param_resolution, 1, note_lfo_min)) then
-            led = 15
-        end
-        g:led(i, 6, led)
-    end
+    -- local note_lfo_min_range = params:get_range("note_lfo_min")
+    -- local note_lfo_min = params:get("note_lfo_min")
+    -- for i = 1, grid_param_resolution do
+    --     local led = 5
+    --     if i ==
+    --         util.round(util.linlin(note_lfo_min_range[1], note_lfo_min_range[2], grid_param_resolution, 1, note_lfo_min)) then
+    --         led = 15
+    --     end
+    --     g:led(i, 6, led)
+    -- end
 
     -- note lfo max
-    local note_lfo_max_range = params:get_range("note_lfo_max")
-    local note_lfo_max = params:get("note_lfo_max")
-    for i = 1, grid_param_resolution do
-        local led = 5
-        if i ==
-            util.round(util.linlin(note_lfo_max_range[1], note_lfo_max_range[2], grid_param_resolution, 1, note_lfo_max)) then
-            led = 15
-        end
-        g:led(i, 5, led)
-    end
+    -- local note_lfo_max_range = params:get_range("note_lfo_max")
+    -- local note_lfo_max = params:get("note_lfo_max")
+    -- for i = 1, grid_param_resolution do
+    --     local led = 5
+    --     if i ==
+    --         util.round(util.linlin(note_lfo_max_range[1], note_lfo_max_range[2], grid_param_resolution, 1, note_lfo_max)) then
+    --         led = 15
+    --     end
+    --     g:led(i, 5, led)
+    -- end
+    draw_note_lfo_min_max()
 
     -- note lfo shape
     for i = 5, 8 do
@@ -584,15 +654,6 @@ function grid_redraw()
         g:led(13, i, led)
     end
 
-    -- custom scale
-    -- for i = 1, 8 do
-    --     local led = 5
-    --     if i == 9 - params:get("scale_custom") then
-    --         led = 15
-    --     end
-    --     g:led(14, i, led)
-    -- end
-
     -- state
     for i = 1, 8 do
         local led = 5
@@ -615,4 +676,13 @@ function grid_redraw()
     end
 
     g:refresh()
+end
+
+function draw_note_lfo_min_max()
+    for x = 1, grid_param_resolution do
+        g:led(x, 6, 5)
+    end
+    for x = note_lfo_min_max_range.x1, note_lfo_min_max_range.x2 do
+        g:led(x, 6, 15)
+    end
 end
