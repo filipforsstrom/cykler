@@ -3,8 +3,9 @@ s = require "sequins"
 MusicUtil = require("musicutil")
 tabutil = require "tabutil"
 g = grid.connect()
-out_midi = midi.connect(1)
+out_midi = midi.connect(2)
 midi_channel = 1
+engine.name = 'PolyPerc'
 
 dest = {"192.168.1.226", 57120}
 
@@ -353,14 +354,20 @@ function send_osc()
     if note ~= previous_note then
         -- osc
         osc.send(dest, "/note", {note, vel})
-        -- print(note)
+        print(note)
+
+        -- engine
+        engine.hz(MusicUtil.note_num_to_freq(note))
 
         -- midi
-        out_midi:cc(25, util.round(vel), midi_channel)
-        out_midi:cc(17, util.round(strt), midi_channel)
-        out_midi:note_on(35 + midi_channel, 100, midi_channel)
+        out_midi:note_on(note, vel, 1)
+
+        -- midi octatrack
+        -- out_midi:cc(25, util.round(vel), midi_channel)
+        -- out_midi:cc(17, util.round(strt), midi_channel)
+        -- out_midi:note_on(35 + midi_channel, 100, midi_channel)
         -- print("note: " .. note .. " vel: " .. vel)
-        midi_channel = midi_channel + 1
+        -- midi_channel = midi_channel + 1
     end
 
     previous_note = note
